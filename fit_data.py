@@ -78,7 +78,43 @@ def render_mesh_from_voxels(voxels, device, gif_save, output_path='/home/mark/co
 
     return rend[0, ..., :3].detach().cpu().numpy().clip(0, 1)
 
+def render_from_pcloud(pcloud, device):
+    """
+    Renders a point cloud.
+    """
+    image_size = 256
+    background_color=(1, 1, 1)
+
+    if device is None:
+        device = utils_vox.get_device()
+    renderer = utils_vox.get_points_renderer(
+        image_size=image_size, background_color=background_color
+    )
+    # ----------------------------------------
+    # point_cloud = np.load(point_cloud_path)
+    # point_cloud = pcloud
     
+    # verts = torch.Tensor(point_cloud["verts"][::50]).to(device).unsqueeze(0)
+    # rgb = torch.Tensor(point_cloud["rgb"][::50]).to(device).unsqueeze(0)
+    # ----------------------------------------
+
+   
+    verts = pcloud
+    rgb = torch.ones_like(verts)*0.5
+    print(f" shape of verts {verts.shape}, shape of rgb {rgb.shape}, rgb {rgb[0][0]}")
+
+    
+    point_cloud = pytorch3d.structures.Pointclouds(points=verts, features=rgb)
+    R, T = pytorch3d.renderer.look_at_view_transform(4,10,0)
+    cameras = pytorch3d.renderer.FoVPerspectiveCameras(R=R, T=T, device=device)
+    rend = renderer(point_cloud, cameras=cameras)
+    rend = rend.detach().cpu().numpy()[0, ..., :3]  # (B, H, W, 4) -> (H, W, 3)
+
+    
+
+    return rend
+
+
 def get_args_parser():
     parser = argparse.ArgumentParser('Model Fit', add_help=False)
     parser.add_argument('--lr', default=4e-4, type=float)
@@ -160,8 +196,19 @@ def fit_pointcloud(pointclouds_src, pointclouds_tgt, args):
         loss_vis = loss.cpu().item()
 
         print("[%4d/%4d]; ttime: %.0f (%.2f); loss: %.3f" % (step, args.max_iter, total_time,  iter_time, loss_vis))
-    
+
+        #save the first iteration for plot
+        if step == 0:
+            # render of the unoptimized src
+            rendered_img_init = render_from_pcloud(pointclouds_src, args.device)
+            # render of the target
+            rendered_img_target = render_from_pcloud(pointclouds_tgt, args.device)
+            
+
+    rendered_img_opt = render_from_pcloud(pointclouds_src, args.device)
     print('Done!')
+    # plot all 4 images 
+    grid_plot_pred_label(rendered_img_init, rendered_img_opt, rendered_img_target)
 
 
 def fit_voxel(voxels_src, voxels_tgt, args):
@@ -240,6 +287,8 @@ def train_model(args):
         pointclouds_tgt = sample_points_from_meshes(mesh_tgt, args.n_points)
 
         # fitting
+        print(f"------------ pointclouds_src.shape {pointclouds_src.shape}, {pointclouds_tgt.shape} ------------ ")
+
         fit_pointcloud(pointclouds_src, pointclouds_tgt, args)        
     
     elif args.type == "mesh":
