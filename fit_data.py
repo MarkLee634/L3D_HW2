@@ -55,7 +55,7 @@ def render_mesh_from_voxels(voxels, device, gif_save, output_path='/home/mark/co
     rend_list = []
 
 
-    R, T = pytorch3d.renderer.look_at_view_transform(dist=10, elev=0, azim=180)
+    R, T = pytorch3d.renderer.look_at_view_transform(dist=3, elev=0, azim=180)
     cameras = pytorch3d.renderer.FoVPerspectiveCameras(R=R, T=T, device=device)
     rend = renderer(mesh, cameras=cameras, lights=lights)
     
@@ -64,21 +64,21 @@ def render_mesh_from_voxels(voxels, device, gif_save, output_path='/home/mark/co
         for i in range (NUM_VIEWS):
             # Prepare the camera:
             # specify elevation and azimuth angles for each viewpoint as tensors. 
-            R, T = pytorch3d.renderer.look_at_view_transform(dist=5.0, elev=30, azim=azim[i])
+            R, T = pytorch3d.renderer.look_at_view_transform(dist=2.0, elev=30, azim=azim[i])
             cameras = pytorch3d.renderer.FoVPerspectiveCameras(device=device, R=R, T=T)
-            rend = renderer(mesh, cameras=cameras, lights=lights)
-            rend = rend.cpu().numpy()[:, ..., :3]
-            rend = rend[0]
+            rend_gif = renderer(mesh, cameras=cameras, lights=lights)
+            rend_gif = rend_gif.cpu().numpy()[:, ..., :3]
+            rend_gif = rend_gif[0]
 
 
-            rend_list.append(rend)
+            rend_list.append(rend_gif)
         
 
         imageio.mimsave(output_path, rend_list, fps=15)
 
     return rend[0, ..., :3].detach().cpu().numpy().clip(0, 1)
 
-def render_from_pcloud(pcloud, device):
+def render_from_pcloud(pcloud, device, gif_save, output_path='/home/mark/course/16825L43D/L3D_HW2/images/X.gif'):
     """
     Renders a point cloud.
     """
@@ -90,25 +90,39 @@ def render_from_pcloud(pcloud, device):
     renderer = utils_vox.get_points_renderer(
         image_size=image_size, background_color=background_color
     )
-    # ----------------------------------------
-    # point_cloud = np.load(point_cloud_path)
-    # point_cloud = pcloud
+  
     
-    # verts = torch.Tensor(point_cloud["verts"][::50]).to(device).unsqueeze(0)
-    # rgb = torch.Tensor(point_cloud["rgb"][::50]).to(device).unsqueeze(0)
-    # ----------------------------------------
-
-   
     verts = pcloud
     rgb = torch.ones_like(verts)*0.5
     print(f" shape of verts {verts.shape}, shape of rgb {rgb.shape}, rgb {rgb[0][0]}")
 
     
     point_cloud = pytorch3d.structures.Pointclouds(points=verts, features=rgb)
-    R, T = pytorch3d.renderer.look_at_view_transform(4,10,0)
+    R, T = pytorch3d.renderer.look_at_view_transform(2,5,0)
     cameras = pytorch3d.renderer.FoVPerspectiveCameras(R=R, T=T, device=device)
     rend = renderer(point_cloud, cameras=cameras)
     rend = rend.detach().cpu().numpy()[0, ..., :3]  # (B, H, W, 4) -> (H, W, 3)
+
+    NUM_VIEWS = 36
+    # transform the camera around the obj 360 degrees
+    azim = torch.linspace(-180, 180, NUM_VIEWS)
+    rend_list = []
+
+    if gif_save == True:
+        for i in range (NUM_VIEWS):
+            # Prepare the camera:
+            # specify elevation and azimuth angles for each viewpoint as tensors. 
+            R, T = pytorch3d.renderer.look_at_view_transform(dist=5.0, elev=30, azim=azim[i])
+            cameras = pytorch3d.renderer.FoVPerspectiveCameras(device=device, R=R, T=T)
+            rend = renderer(point_cloud, cameras=cameras)
+            rend = rend.detach().cpu().numpy()[:, ..., :3]
+            rend = rend[0]
+
+
+            rend_list.append(rend)
+        
+        imageio.mimsave(output_path, rend_list, fps=15)
+
 
     
 
@@ -135,10 +149,12 @@ def grid_plot_pred_label(init_pred, optimized_pred, label):
                     axes_pad=0.1,  # pad between axes in inch.
                     )
 
+    titles = ['Initial prediction', 'Ground truth', 'Optimized prediction', 'Ground truth'
+    ]
     for ax, im in zip(grid, [init_pred, label, optimized_pred , label]):
         # Iterating over the grid returns the Axes.
         ax.imshow(im)
-
+        ax.set_title(titles.pop(0))
     plt.show()
 
 def fit_mesh(mesh_src, mesh_tgt, args):
@@ -181,6 +197,10 @@ def fit_pointcloud(pointclouds_src, pointclouds_tgt, args):
     start_iter = 0
     start_time = time.time()    
     optimizer = torch.optim.Adam([pointclouds_src], lr = args.lr)
+
+    output_path = '/home/mark/course/16825L43D/L3D_HW2/images/Q12_opt.gif'
+    output_path_true = '/home/mark/course/16825L43D/L3D_HW2/images/Q12_gt.gif'
+
     for step in range(start_iter, args.max_iter):
         iter_start_time = time.time()
 
@@ -200,12 +220,12 @@ def fit_pointcloud(pointclouds_src, pointclouds_tgt, args):
         #save the first iteration for plot
         if step == 0:
             # render of the unoptimized src
-            rendered_img_init = render_from_pcloud(pointclouds_src, args.device)
+            rendered_img_init = render_from_pcloud(pointclouds_src, args.device, gif_save=False)
             # render of the target
-            rendered_img_target = render_from_pcloud(pointclouds_tgt, args.device)
+            rendered_img_target = render_from_pcloud(pointclouds_tgt, args.device,  gif_save=True, output_path=output_path_true)
             
-
-    rendered_img_opt = render_from_pcloud(pointclouds_src, args.device)
+    
+    rendered_img_opt = render_from_pcloud(pointclouds_src, args.device,  gif_save=True, output_path=output_path)
     print('Done!')
     # plot all 4 images 
     grid_plot_pred_label(rendered_img_init, rendered_img_opt, rendered_img_target)
@@ -234,11 +254,11 @@ def fit_voxel(voxels_src, voxels_tgt, args):
         loss_vis = loss.cpu().item()
 
         #save the first iteration
-        if step == 0:
+        if step == 100:
             # render of the unoptimized src
             rendered_img_init = render_mesh_from_voxels(voxels_src[0].detach().cpu().numpy(), args.device, gif_save = False)
             # render of the target
-            rendered_img_target = render_mesh_from_voxels(voxels_tgt[0].detach().cpu().numpy(), args.device, gif_save = False)
+            rendered_img_target = render_mesh_from_voxels(voxels_tgt[0].detach().cpu().numpy(), args.device, gif_save = True)
 
 
         print("[%4d/%4d]; ttime: %.0f (%.2f); loss: %.3f" % (step, args.max_iter, total_time,  iter_time, loss_vis))
@@ -247,7 +267,7 @@ def fit_voxel(voxels_src, voxels_tgt, args):
 
     # render optimized src
     output_path = '/home/mark/course/16825L43D/L3D_HW2/images/voxel_target.gif'
-    rendered_img_opt = render_mesh_from_voxels(voxels_src[0].detach().cpu().numpy(), args.device, gif_save = False, output_path = output_path)
+    rendered_img_opt = render_mesh_from_voxels(voxels_src[0].detach().cpu().numpy(), args.device, gif_save = True, output_path = output_path)
 
     # plot all 4 images 
     grid_plot_pred_label(rendered_img_init, rendered_img_opt, rendered_img_target)
