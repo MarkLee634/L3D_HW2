@@ -7,25 +7,32 @@ from  pytorch3d.datasets.r2n2.utils import collate_batched_R2N2
 import dataset_location
 from pytorch3d.ops import sample_points_from_meshes
 import losses
+import sys
+import wandb
 
+'''
+python train_model.py --type 'vox' --batch_size 1 --unit_test True --max_iter 10000
+
+'''
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Singleto3D', add_help=False)
     # Model parameters
     parser.add_argument('--arch', default='resnet18', type=str)
     parser.add_argument('--lr', default=4e-4, type=str)
-    parser.add_argument('--max_iter', default=10000, type=str)
-    parser.add_argument('--log_freq', default=1000, type=str)
-    parser.add_argument('--batch_size', default=2, type=str)
+    parser.add_argument('--max_iter', default=10000, type=int)
+    parser.add_argument('--log_freq', default=100, type=str)
+    parser.add_argument('--batch_size', default=2, type=int)
     parser.add_argument('--num_workers', default=0, type=str)
     parser.add_argument('--type', default='vox', choices=['vox', 'point', 'mesh'], type=str)
     parser.add_argument('--n_points', default=5000, type=int)
     parser.add_argument('--w_chamfer', default=1.0, type=float)
     parser.add_argument('--w_smooth', default=0.1, type=float)
-    parser.add_argument('--save_freq', default=10000, type=int)    
+    parser.add_argument('--save_freq', default=5000, type=int)    
     parser.add_argument('--device', default='cuda', type=str) 
     parser.add_argument('--load_feat', action='store_true') 
-    parser.add_argument('--load_checkpoint', action='store_true')            
+    parser.add_argument('--load_checkpoint', action='store_true')        
+    parser.add_argument('--unit_test', default=False, type=bool)    
     return parser
 
 def preprocess(feed_dict,args):
@@ -66,7 +73,6 @@ def calculate_loss(predictions, ground_truth, args):
 
 def train_model(args):
     r2n2_dataset = R2N2("train", dataset_location.SHAPENET_PATH, dataset_location.R2N2_PATH, dataset_location.SPLITS_PATH, return_voxels=True, return_feats=args.load_feat)
-
     loader = torch.utils.data.DataLoader(
         r2n2_dataset,
         batch_size=args.batch_size,
@@ -74,6 +80,19 @@ def train_model(args):
         collate_fn=collate_batched_R2N2,
         pin_memory=True,
         drop_last=True)
+
+
+    if args.unit_test:
+        small_set = torch.utils.data.Subset(r2n2_dataset, range(1))
+
+        loader = torch.utils.data.DataLoader(
+            small_set,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            collate_fn=collate_batched_R2N2,
+            pin_memory=True,
+            drop_last=True)
+
     train_loader = iter(loader)
 
     model =  SingleViewto3D(args)
@@ -126,11 +145,20 @@ def train_model(args):
                 'optimizer_state_dict': optimizer.state_dict()
                 }, f'checkpoint_{args.type}.pth')
 
-        print("[%4d/%4d]; ttime: %.0f (%.2f, %.2f); loss: %.3f" % (step, args.max_iter, total_time, read_time, iter_time, loss_vis))
+        if (step % args.log_freq) == 0:
+            print("[%4d/%4d]; ttime: %.0f (%.2f, %.2f); loss: %.3f" % (step, args.max_iter, total_time, read_time, iter_time, loss_vis))
+            wandb.log({"step": step, "epoch": loss_vis})
+
 
     print('Done!')
 
 if __name__ == '__main__':
+    
     parser = argparse.ArgumentParser('Singleto3D', parents=[get_args_parser()])
     args = parser.parse_args()
+
+    print(f" ------------ starting scrip ------------ ")
+    wandb.init(project="L3D-HW2")
+
+
     train_model(args)

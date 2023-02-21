@@ -12,6 +12,13 @@ import mcubes
 import utils_vox
 import matplotlib.pyplot as plt 
 
+import sys
+
+
+'''
+python eval_model.py --type 'vox' --load_checkpoint --unit_test True 
+'''
+
 def get_args_parser():
     parser = argparse.ArgumentParser('Singleto3D', add_help=False)
     parser.add_argument('--arch', default='resnet18', type=str)
@@ -26,6 +33,7 @@ def get_args_parser():
     parser.add_argument('--load_checkpoint', action='store_true')  
     parser.add_argument('--device', default='cuda', type=str) 
     parser.add_argument('--load_feat', action='store_true') 
+    parser.add_argument('--unit_test', default=False, type=bool)
     return parser
 
 def preprocess(feed_dict, args):
@@ -115,6 +123,18 @@ def evaluate_model(args):
         collate_fn=collate_batched_R2N2,
         pin_memory=True,
         drop_last=True)
+
+    if args.unit_test:
+        small_set = torch.utils.data.Subset(r2n2_dataset, range(1))
+
+        loader = torch.utils.data.DataLoader(
+            small_set,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            collate_fn=collate_batched_R2N2,
+            pin_memory=True,
+            drop_last=True)
+
     eval_loader = iter(loader)
 
     model =  SingleViewto3D(args)
@@ -157,10 +177,54 @@ def evaluate_model(args):
         metrics = evaluate(predictions, mesh_gt, thresholds, args)
 
         # TODO:
-        # if (step % args.vis_freq) == 0:
-        #     # visualization block
-        #     #  rend = 
-        #     plt.imsave(f'vis/{step}_{args.type}.png', rend)
+        if (step % args.vis_freq) == 0:
+            # visualization block
+            # render image from mesh
+            print(f" ******** plotting  *********")
+            print(f" mesh_gt {mesh_gt}")
+
+            vertices = mesh_gt.verts_list()
+            faces = mesh_gt.faces_list()
+
+            #convert list to tensor
+            vertices = torch.cat(vertices)
+            faces = torch.cat(faces)
+
+            vertices = vertices.unsqueeze(0)  # (N_v, 3) -> (1, N_v, 3)
+            faces = faces.unsqueeze(0)  # (N_f, 3) -> (1, N_f, 3)
+            color=[0.7, 0.7, 1]
+
+
+            textures = torch.ones_like(vertices)  # (1, N_v, 3)
+            textures = textures * torch.tensor(color)  # (1, N_v, 3)
+
+            mesh_gt = pytorch3d.structures.Meshes(
+                verts=vertices,
+                faces=faces,
+                textures=pytorch3d.renderer.TexturesVertex(textures),
+            )
+
+
+            # mesh_gt = mesh_gt.to(args.device)
+
+
+            rendered_gt = utils_vox.render_mesh(mesh_gt.to(args.device), args.device)
+
+
+
+            # plt.imsave(f'vis/{step}_{args.type}.png', rend)
+            plt.figure()
+            #subplot(r,c) provide the no. of rows and columns
+            f, axarr = plt.subplots(1,3)
+
+            # use the created array to output your multiple images. In this case I have stacked 4 images vertically
+            images_gt_ = images_gt.detach().cpu().numpy()
+            images_gt_ = images_gt_.squeeze(0)
+            axarr[0].imshow(images_gt_)
+            axarr[1].imshow(rendered_gt)
+            axarr[2].imshow(rendered_gt)
+            plt.show()
+
       
 
         total_time = time.time() - start_time

@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+from pytorch3d.ops.knn import knn_gather, knn_points
 from pytorch3d.loss import chamfer_distance
 import sys
 import torch.nn.functional 
@@ -43,14 +44,23 @@ def chamfer_loss(point_cloud_src,point_cloud_tgt):
 	# implement chamfer loss from scratch
 
 
-
-	point_cloud_src_ = point_cloud_src.squeeze(0) 
-	point_cloud_tgt_ = point_cloud_tgt.squeeze(0) 
-
-	loss_chamfer = 0
-	loss_chamfer_tuple = chamfer_distance(point_cloud_src,point_cloud_tgt)
-	loss_chamfer = loss_chamfer_tuple[0]
+	# loss_chamfer = 0
+	# loss_chamfer_tuple = chamfer_distance(point_cloud_src,point_cloud_tgt) #for validation only
+	# loss_chamfer = loss_chamfer_tuple[0]
 	# print(f" ******** loss_chamfer {loss_chamfer} ********")
+
+	x_nn = knn_points(point_cloud_src, point_cloud_tgt, K=1)
+	y_nn = knn_points(point_cloud_tgt, point_cloud_src, K=1)
+	cham_x = x_nn.dists[..., 0]  # (N, P1)
+	cham_y = y_nn.dists[..., 0]  # (N, P1)
+
+	# Apply point reduction
+	cham_x = cham_x.sum(1)  # (N,)
+	cham_y = cham_y.sum(1)  # (N,)
+
+	cham_dist = cham_x + cham_y  # (N,)
+	loss_chamfer = cham_dist
+	print(f" ******** loss_chamfer {loss_chamfer} ********")
 
 	return loss_chamfer
 

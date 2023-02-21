@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import torch.nn.functional as F
+import pytorch3d
 
 from pytorch3d.renderer import (
     AlphaCompositor,
@@ -85,6 +86,28 @@ def get_mesh_renderer(image_size=512, lights=None, device=None):
         shader=HardPhongShader(device=device, lights=lights),
     )
     return renderer
+
+def render_mesh(mesh_input, device):
+    """
+    Renders a mesh using the Pytorch3D renderer.
+    """
+    image_size = 256
+
+    NUM_VIEWS = 36
+    # transform the camera around the obj 360 degrees
+    azim = torch.linspace(-180, 180, NUM_VIEWS)
+
+    lights = pytorch3d.renderer.PointLights(location=[[0, 0.5, -4.0]], device=device)
+    renderer = get_mesh_renderer(image_size=image_size, device=device)
+    rend_list = []
+
+
+    R, T = pytorch3d.renderer.look_at_view_transform(dist=1, elev=0, azim=0)
+    cameras = pytorch3d.renderer.FoVPerspectiveCameras(R=R, T=T, device=device)
+    rend = renderer(mesh_input, cameras=cameras, lights=lights)
+
+    return  rend[0, ..., :3].detach().cpu().numpy().clip(0, 1)
+    
 
     #================================================================================================
 

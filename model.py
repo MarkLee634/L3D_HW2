@@ -20,6 +20,56 @@ class SingleViewto3D(nn.Module):
         if args.type == "vox":
             # Input: b x 512
             # Output: b x 1 x 32 x 32 x 32
+            print(f" ***** create model for {args.type} *****")
+            # 5 3D conv layers
+            # channel size [512,128,64,32,8,1]
+            # kernals size [4x4x4 with stride of 2, padding 1]
+            # [ 3D conv > batch > ReLU ] x5 > sigmoid
+            in_size = 512
+            out_size = 1
+
+            #============================================================
+            # layers = [
+            #    # [ 3D conv > batch > ReLU ] x5 > sigmoid 
+            #    #input layer
+            #     nn.Conv3d(in_size, 128, kernel_size=4, stride=2, padding=1),
+            #     nn.BatchNorm3d(128),
+            #     nn.ReLU(),
+
+            #    #1st layer
+            #    #2nd layer
+            #     #3rd layer
+            #     #4th layer
+            #     #5th layer
+            #     #output layer
+            #     nn.Conv3d(128, out_size, kernel_size=4, stride=2, padding=1)
+            # ]
+
+            # self.decoder = nn.Sequential(*layers)
+            #============================================================
+            # Layer Definition
+            self.layer1 = torch.nn.Sequential(
+                torch.nn.ConvTranspose3d(in_size, 128, kernel_size=4, stride=2, padding=1),
+                torch.nn.BatchNorm3d(128),
+                torch.nn.ReLU()
+            )
+            self.layer2 = torch.nn.Sequential(
+            torch.nn.ConvTranspose3d(128, 32, kernel_size=4, stride=2,  padding=1),
+            torch.nn.BatchNorm3d(32),
+            torch.nn.ReLU()
+            )
+            self.layer3 = torch.nn.Sequential(
+            torch.nn.ConvTranspose3d(32, 8, kernel_size=4, stride=2,  padding=1),
+            torch.nn.BatchNorm3d(8),
+            torch.nn.ReLU()
+            )
+            self.layer4 = torch.nn.Sequential(
+            torch.nn.ConvTranspose3d(8, 1, kernel_size=4, stride=2,  padding=1),
+            torch.nn.Sigmoid()
+            )
+
+
+
             pass
             # TODO:
             # self.decoder =             
@@ -39,6 +89,7 @@ class SingleViewto3D(nn.Module):
             # self.decoder =             
 
     def forward(self, images, args):
+        # print(f" ----------- forward pass -----------")
         results = dict()
 
         total_loss = 0.0
@@ -55,7 +106,32 @@ class SingleViewto3D(nn.Module):
         # call decoder
         if args.type == "vox":
             # TODO:
-            # voxels_pred =             
+            # voxels_pred =  self.decoder(encoded_feat)   
+            # 
+            # print(f"shape of encoded_feat: {encoded_feat.shape}")
+            # reshape to [bx512] to [b x 512 x 1 x 1 x 1]
+            encoded_feat_reshaped = encoded_feat.view(-1, 512, 1, 1, 1)
+
+            # print(f"shape of encoded_feat_reshaped: {encoded_feat_reshaped.shape}")
+
+            # upsample to b x 512 x 2 x 2 x 2
+            upsample = torch.nn.Upsample(scale_factor=2, mode='nearest')
+            encoded_feat_upsampled = upsample(encoded_feat_reshaped)
+
+            # print(f"shape of encoded_feat_upsampled: {encoded_feat_upsampled.shape}")
+
+            # forward pass through 5 layers
+            voxels_pred = self.layer1(encoded_feat_upsampled)
+            # print(f"after layer1: {voxels_pred.shape}")    
+            voxels_pred = self.layer2(voxels_pred)
+            # print(f"after layer2: {voxels_pred.shape}")  
+            voxels_pred = self.layer3(voxels_pred)
+            # print(f"after layer3: {voxels_pred.shape}")  
+            voxels_pred = self.layer4(voxels_pred)
+            # print(f"after layer4: {voxels_pred.shape}")  
+
+
+
             return voxels_pred
 
         elif args.type == "point":
