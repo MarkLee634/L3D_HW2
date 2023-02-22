@@ -20,6 +20,11 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 
 import utils_vox
 
+'''
+python fit_data.py --type 'vox'
+python fit_data.py --type 'point'
+python fit_data.py --type 'mesh'
+'''
 def render_mesh_from_voxels(voxels, device, gif_save, output_path='/home/mark/course/16825L43D/L3D_HW2/images/X.gif'):
     """
     Renders a sphere using parametric sampling. Samples num_samples ** 2 points.
@@ -55,7 +60,7 @@ def render_mesh_from_voxels(voxels, device, gif_save, output_path='/home/mark/co
     rend_list = []
 
 
-    R, T = pytorch3d.renderer.look_at_view_transform(dist=3, elev=0, azim=180)
+    R, T = pytorch3d.renderer.look_at_view_transform(dist=3, elev=30, azim=180)
     cameras = pytorch3d.renderer.FoVPerspectiveCameras(R=R, T=T, device=device)
     rend = renderer(mesh, cameras=cameras, lights=lights)
     
@@ -64,7 +69,7 @@ def render_mesh_from_voxels(voxels, device, gif_save, output_path='/home/mark/co
         for i in range (NUM_VIEWS):
             # Prepare the camera:
             # specify elevation and azimuth angles for each viewpoint as tensors. 
-            R, T = pytorch3d.renderer.look_at_view_transform(dist=2.0, elev=30, azim=azim[i])
+            R, T = pytorch3d.renderer.look_at_view_transform(dist=3.0, elev=30, azim=azim[i])
             cameras = pytorch3d.renderer.FoVPerspectiveCameras(device=device, R=R, T=T)
             rend_gif = renderer(mesh, cameras=cameras, lights=lights)
             rend_gif = rend_gif.cpu().numpy()[:, ..., :3]
@@ -98,7 +103,7 @@ def render_from_pcloud(pcloud, device, gif_save, output_path='/home/mark/course/
 
     
     point_cloud = pytorch3d.structures.Pointclouds(points=verts, features=rgb)
-    R, T = pytorch3d.renderer.look_at_view_transform(2,5,0)
+    R, T = pytorch3d.renderer.look_at_view_transform(1,1,0)
     cameras = pytorch3d.renderer.FoVPerspectiveCameras(R=R, T=T, device=device)
     rend = renderer(point_cloud, cameras=cameras)
     rend = rend.detach().cpu().numpy()[0, ..., :3]  # (B, H, W, 4) -> (H, W, 3)
@@ -112,7 +117,7 @@ def render_from_pcloud(pcloud, device, gif_save, output_path='/home/mark/course/
         for i in range (NUM_VIEWS):
             # Prepare the camera:
             # specify elevation and azimuth angles for each viewpoint as tensors. 
-            R, T = pytorch3d.renderer.look_at_view_transform(dist=5.0, elev=30, azim=azim[i])
+            R, T = pytorch3d.renderer.look_at_view_transform(dist=1.0, elev=30, azim=azim[i])
             cameras = pytorch3d.renderer.FoVPerspectiveCameras(device=device, R=R, T=T)
             rend = renderer(point_cloud, cameras=cameras)
             rend = rend.detach().cpu().numpy()[:, ..., :3]
@@ -157,12 +162,45 @@ def grid_plot_pred_label(init_pred, optimized_pred, label):
         ax.set_title(titles.pop(0))
     plt.show()
 
+
+def add_texture_to_mesh(mesh_gt):
+
+    vertices = mesh_gt.verts_list()
+    faces = mesh_gt.faces_list()
+
+    # print(f"mesh_gt {mesh_gt}")
+
+    #convert list to tensor
+    vertices = torch.cat(vertices)
+    faces = torch.cat(faces)
+
+    vertices = vertices.unsqueeze(0)  # (N_v, 3) -> (1, N_v, 3)
+    faces = faces.unsqueeze(0)  # (N_f, 3) -> (1, N_f, 3)
+    color=[0.7, 0.7, 1]
+
+
+    textures = torch.ones_like(vertices)  # (1, N_v, 3)
+    textures = textures * torch.tensor(color).to(args.device)  # (1, N_v, 3)
+
+    mesh_gt = pytorch3d.structures.Meshes(
+        verts=vertices,
+        faces=faces,
+        textures=pytorch3d.renderer.TexturesVertex(textures),
+    )
+
+    return mesh_gt
+
+
 def fit_mesh(mesh_src, mesh_tgt, args):
     start_iter = 0
     start_time = time.time()
 
     deform_vertices_src = torch.zeros(mesh_src.verts_packed().shape, requires_grad=True, device='cuda')
     optimizer = torch.optim.Adam([deform_vertices_src], lr = args.lr)
+
+    output_path_gt = '/home/mark/course/16825L43D/L3D_HW2/images/mesh_gt.gif'
+    output_path = '/home/mark/course/16825L43D/L3D_HW2/images/mesh_target.gif'
+
     print("Starting training !")
     for step in range(start_iter, args.max_iter):
         iter_start_time = time.time()
@@ -186,11 +224,32 @@ def fit_mesh(mesh_src, mesh_tgt, args):
 
         loss_vis = loss.cpu().item()
 
-        print("[%4d/%4d]; ttime: %.0f (%.2f); loss: %.3f" % (step, args.max_iter, total_time,  iter_time, loss_vis))        
+        print("[%4d/%4d]; ttime: %.0f (%.2f); loss: %.3f" % (step, args.max_iter, total_time,  iter_time, loss_vis))   
+
+        #save the first iteration
+        if step == 100:
+            # render of the unoptimized src
+            new_mesh_src_text = add_texture_to_mesh(new_mesh_src)
+            rendered_img_init = utils_vox.render_mesh(new_mesh_src_text, args.device)
+            # render of the target
+            mesh_tgt_text = add_texture_to_mesh(mesh_tgt)
+            rendered_img_target = utils_vox.render_mesh(mesh_tgt_text, args.device, gif_save= True, output_path = output_path_gt)     
+    
+    # render optimized src
+
+    new_mesh_src_text = add_texture_to_mesh(new_mesh_src)
+    rendered_img_opt = utils_vox.render_mesh(new_mesh_src_text, args.device, gif_save = True, output_path = output_path)
+
+    # plot all 4 images 
+    grid_plot_pred_label(rendered_img_init, rendered_img_opt, rendered_img_target)
     
     mesh_src.offset_verts_(deform_vertices_src)
 
     print('Done!')
+
+    
+
+
 
 
 def fit_pointcloud(pointclouds_src, pointclouds_tgt, args):
@@ -198,8 +257,8 @@ def fit_pointcloud(pointclouds_src, pointclouds_tgt, args):
     start_time = time.time()    
     optimizer = torch.optim.Adam([pointclouds_src], lr = args.lr)
 
-    output_path = '/home/mark/course/16825L43D/L3D_HW2/images/Q12_opt.gif'
-    output_path_true = '/home/mark/course/16825L43D/L3D_HW2/images/Q12_gt.gif'
+    output_path = '/home/mark/course/16825L43D/L3D_HW2/images/Q13_opt.gif'
+    output_path_true = '/home/mark/course/16825L43D/L3D_HW2/images/Q13_gt.gif'
 
     for step in range(start_iter, args.max_iter):
         iter_start_time = time.time()
@@ -241,7 +300,8 @@ def fit_voxel(voxels_src, voxels_tgt, args):
         iter_start_time = time.time()
 
         # print(f"------------ voxels_src.shape {voxels_src.shape}, {voxels_tgt.shape} ------------ ")
-        loss = losses.voxel_loss(voxels_src,voxels_tgt)
+        voxel_clipped = torch.sigmoid(voxels_src)
+        loss = losses.voxel_loss(voxel_clipped,voxels_tgt)
         # print(f"------------ loss {loss} ------------ ")
         
 

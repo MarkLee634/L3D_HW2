@@ -9,9 +9,12 @@ from pytorch3d.ops import sample_points_from_meshes
 import losses
 import sys
 import wandb
-
+import matplotlib.pyplot as plt 
 '''
 python train_model.py --type 'vox' --batch_size 1 --unit_test True --max_iter 10000
+
+python train_model.py --type 'vox' --batch_size 16  --max_iter 10000
+
 
 '''
 
@@ -19,7 +22,7 @@ def get_args_parser():
     parser = argparse.ArgumentParser('Singleto3D', add_help=False)
     # Model parameters
     parser.add_argument('--arch', default='resnet18', type=str)
-    parser.add_argument('--lr', default=4e-4, type=str)
+    parser.add_argument('--lr', default=0.1, type=str)
     parser.add_argument('--max_iter', default=10000, type=int)
     parser.add_argument('--log_freq', default=100, type=str)
     parser.add_argument('--batch_size', default=2, type=int)
@@ -28,7 +31,7 @@ def get_args_parser():
     parser.add_argument('--n_points', default=5000, type=int)
     parser.add_argument('--w_chamfer', default=1.0, type=float)
     parser.add_argument('--w_smooth', default=0.1, type=float)
-    parser.add_argument('--save_freq', default=5000, type=int)    
+    parser.add_argument('--save_freq', default=1000, type=int)    
     parser.add_argument('--device', default='cuda', type=str) 
     parser.add_argument('--load_feat', action='store_true') 
     parser.add_argument('--load_checkpoint', action='store_true')        
@@ -81,26 +84,18 @@ def train_model(args):
         pin_memory=True,
         drop_last=True)
 
-
-    if args.unit_test:
-        small_set = torch.utils.data.Subset(r2n2_dataset, range(1))
-
-        loader = torch.utils.data.DataLoader(
-            small_set,
-            batch_size=args.batch_size,
-            num_workers=args.num_workers,
-            collate_fn=collate_batched_R2N2,
-            pin_memory=True,
-            drop_last=True)
-
     train_loader = iter(loader)
 
     model =  SingleViewto3D(args)
     model.to(args.device)
     model.train()
+    print(f"model {model}")
+
 
     # ============ preparing optimizer ... ============
     optimizer = torch.optim.Adam(model.parameters(), lr = args.lr)  # to use with ViTs
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min',  patience = 100)
+
     start_iter = 0
     start_time = time.time()
 
@@ -111,6 +106,9 @@ def train_model(args):
         start_iter = checkpoint['step']
         print(f"Succesfully loaded iter {start_iter}")
     
+
+    print(f" len(train_loader) {len(train_loader)}")
+
     print("Starting training !")
     for step in range(start_iter, args.max_iter):
         iter_start_time = time.time()
@@ -131,12 +129,15 @@ def train_model(args):
 
         optimizer.zero_grad()
         loss.backward()
-        optimizer.step()        
+        optimizer.step()   
+           
 
         total_time = time.time() - start_time
         iter_time = time.time() - iter_start_time
 
         loss_vis = loss.cpu().item()
+
+           
 
         if (step % args.save_freq) == 0:
             torch.save({
@@ -147,7 +148,7 @@ def train_model(args):
 
         if (step % args.log_freq) == 0:
             print("[%4d/%4d]; ttime: %.0f (%.2f, %.2f); loss: %.3f" % (step, args.max_iter, total_time, read_time, iter_time, loss_vis))
-            wandb.log({"step": step, "epoch": loss_vis})
+            wandb.log({"step": step, "loss": loss_vis})
 
 
     print('Done!')

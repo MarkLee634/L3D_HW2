@@ -2,7 +2,8 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 import pytorch3d
-
+import mcubes
+import sys
 from pytorch3d.renderer import (
     AlphaCompositor,
     RasterizationSettings,
@@ -13,6 +14,8 @@ from pytorch3d.renderer import (
     PointsRasterizer,
     HardPhongShader,
 )
+
+import imageio
 
 XMIN = -0.5 # right (neg is left)
 XMAX = 0.5 # right
@@ -34,6 +37,54 @@ def get_device():
         device = torch.device("cpu")
     return device
 
+
+
+def render_mesh_from_voxels(voxels, device):
+    """
+    Renders a sphere using parametric sampling. Samples num_samples ** 2 points.
+    """
+    image_size=256
+    voxel_size = 32
+
+    if device is None:
+        device = get_device()
+
+    min_value = -1.1
+    max_value = 1.1
+
+
+    # X, Y, Z = torch.meshgrid([torch.linspace(min_value, max_value, voxel_size)] * 3)
+    # voxels_test = X ** 2 + Y ** 2 + Z ** 2 - 1
+    # # print(f" voxels {voxels}")
+    # print(f" voxels test shape {voxels_test.shape}")
+    # print(f" voxels input shape {voxels.shape}")
+
+    # print(f" voxel test [0] {voxels_test[0]}")
+    # print(f" voxel input [0] {voxels[0]}")
+
+    vertices, faces = mcubes.marching_cubes(mcubes.smooth(voxels), isovalue=0)
+    vertices = torch.tensor(vertices).float()
+    faces = torch.tensor(faces.astype(int))
+
+
+    # Vertex coordinates are indexed by array position, so we need to
+    # renormalize the coordinate system.
+    vertices = (vertices / voxel_size) * (max_value - min_value) + min_value
+    textures = (vertices - vertices.min()) / (vertices.max() - vertices.min())
+    textures = pytorch3d.renderer.TexturesVertex(vertices.unsqueeze(0))
+
+    mesh = pytorch3d.structures.Meshes([vertices], [faces], textures=textures).to(
+        device
+    )
+  
+    lights = pytorch3d.renderer.PointLights(location=[[0, 0.5, -4.0]], device=device)
+    renderer = get_mesh_renderer(image_size=image_size, device=device)
+
+    R, T = pytorch3d.renderer.look_at_view_transform(dist=3, elev=0, azim=180)
+    cameras = pytorch3d.renderer.FoVPerspectiveCameras(R=R, T=T, device=device)
+    rend = renderer(mesh, cameras=cameras, lights=lights)
+    
+    return rend[0, ..., :3].detach().cpu().numpy().clip(0, 1)
 
 def get_points_renderer(
     image_size=512, device=None, radius=0.01, background_color=(1, 1, 1)
@@ -87,7 +138,7 @@ def get_mesh_renderer(image_size=512, lights=None, device=None):
     )
     return renderer
 
-def render_mesh(mesh_input, device):
+def render_mesh(mesh_input, device, gif_save = False, output_path = '/home/mark/course/16825L43D/L3D_HW2/images/X.gif'):
     """
     Renders a mesh using the Pytorch3D renderer.
     """
@@ -99,12 +150,31 @@ def render_mesh(mesh_input, device):
 
     lights = pytorch3d.renderer.PointLights(location=[[0, 0.5, -4.0]], device=device)
     renderer = get_mesh_renderer(image_size=image_size, device=device)
-    rend_list = []
 
 
-    R, T = pytorch3d.renderer.look_at_view_transform(dist=1, elev=0, azim=0)
+    R, T = pytorch3d.renderer.look_at_view_transform(dist=1, elev=30, azim=0)
     cameras = pytorch3d.renderer.FoVPerspectiveCameras(R=R, T=T, device=device)
     rend = renderer(mesh_input, cameras=cameras, lights=lights)
+
+
+    rend_list = []
+ 
+    if gif_save == True:
+        for i in range (NUM_VIEWS):
+            # Prepare the camera:
+            # specify elevation and azimuth angles for each viewpoint as tensors. 
+            R, T = pytorch3d.renderer.look_at_view_transform(dist=1.0, elev=30, azim=azim[i])
+            cameras = pytorch3d.renderer.FoVPerspectiveCameras(device=device, R=R, T=T)
+            rend_gif = renderer(mesh_input, cameras=cameras, lights=lights)
+            rend_gif = rend_gif.detach().cpu().numpy()[:, ..., :3]
+            rend_gif = rend_gif[0]
+
+
+            rend_list.append(rend_gif)
+        
+
+        imageio.mimsave(output_path, rend_list, fps=15)
+
 
     return  rend[0, ..., :3].detach().cpu().numpy().clip(0, 1)
     

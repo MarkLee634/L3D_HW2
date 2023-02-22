@@ -160,11 +160,10 @@ def evaluate_model(args):
     max_iter = len(eval_loader)
     for step in range(start_iter, max_iter):
         iter_start_time = time.time()
-
         read_start_time = time.time()
 
+        #get data
         feed_dict = next(eval_loader)
-
         images_gt, mesh_gt = preprocess(feed_dict, args)
 
         read_time = time.time() - read_start_time
@@ -176,12 +175,14 @@ def evaluate_model(args):
 
         metrics = evaluate(predictions, mesh_gt, thresholds, args)
 
+
+
         # TODO:
         if (step % args.vis_freq) == 0:
             # visualization block
             # render image from mesh
             print(f" ******** plotting  *********")
-            print(f" mesh_gt {mesh_gt}")
+            # print(f" mesh_gt {mesh_gt}")
 
             vertices = mesh_gt.verts_list()
             faces = mesh_gt.faces_list()
@@ -204,12 +205,35 @@ def evaluate_model(args):
                 textures=pytorch3d.renderer.TexturesVertex(textures),
             )
 
+            mesh_gt = mesh_gt.to(args.device)
+            rendered_gt = utils_vox.render_mesh(mesh_gt, args.device)
+            #================================================================================================
 
-            # mesh_gt = mesh_gt.to(args.device)
+            print(f" predictions {predictions.shape}")
+            #convert tensor to voxel
+            predictions = predictions.squeeze(0)
+            print(f" predictions {predictions.shape}")
+            predictions = predictions.squeeze(0)
+            print(f" predictions {predictions.shape}")
+            # print(f" predictions {predictions}")
+
+            
+
+            # min_value = -1.1
+            # max_value = 1.1
+            # voxel_size = 32
+            # X, Y, Z = torch.meshgrid([torch.linspace(min_value, max_value, voxel_size)] * 3)
+            # voxels = X ** 2 + Y ** 2 + Z ** 2 - 1
+            # # print(f" voxels {voxels}")
+            # print(f" voxels shape {voxels.shape}")
+
+            # sys.exit()
 
 
-            rendered_gt = utils_vox.render_mesh(mesh_gt.to(args.device), args.device)
-
+            #render from voxel
+            predictions = predictions.detach().cpu()
+            print(f" predictions{predictions}")
+            rendered_pred = utils_vox.render_mesh_from_voxels(predictions, args.device)
 
 
             # plt.imsave(f'vis/{step}_{args.type}.png', rend)
@@ -219,9 +243,10 @@ def evaluate_model(args):
 
             # use the created array to output your multiple images. In this case I have stacked 4 images vertically
             images_gt_ = images_gt.detach().cpu().numpy()
+
             images_gt_ = images_gt_.squeeze(0)
             axarr[0].imshow(images_gt_)
-            axarr[1].imshow(rendered_gt)
+            axarr[1].imshow(rendered_pred)
             axarr[2].imshow(rendered_gt)
             plt.show()
 
