@@ -44,38 +44,22 @@ def render_mesh_from_voxels(voxels, device):
     Renders a sphere using parametric sampling. Samples num_samples ** 2 points.
     """
     image_size=256
-    voxel_size = 32
 
     if device is None:
         device = get_device()
 
-    min_value = -1.1
-    max_value = 1.1
 
+    voxels_unsq = voxels.unsqueeze(0)
+    # print(f"shape of voxels_unsq {voxels_unsq.shape}") # (1, 32, 32, 32)
+    mesh = pytorch3d.ops.cubify(voxels_unsq, 0.5)
+    mesh = mesh.to(device)
+    vertices = mesh.verts_packed().unsqueeze(0)
+    faces = mesh.faces_packed().unsqueeze(0)
+    texture = torch.ones_like(vertices) * 0.5  # (1, N_v, 3)
+    textures = pytorch3d.renderer.TexturesVertex(texture)
 
-    # X, Y, Z = torch.meshgrid([torch.linspace(min_value, max_value, voxel_size)] * 3)
-    # voxels_test = X ** 2 + Y ** 2 + Z ** 2 - 1
-    # # print(f" voxels {voxels}")
-    # print(f" voxels test shape {voxels_test.shape}")
-    # print(f" voxels input shape {voxels.shape}")
-
-    # print(f" voxel test [0] {voxels_test[0]}")
-    # print(f" voxel input [0] {voxels[0]}")
-
-    vertices, faces = mcubes.marching_cubes(mcubes.smooth(voxels), isovalue=0)
-    vertices = torch.tensor(vertices).float()
-    faces = torch.tensor(faces.astype(int))
-
-
-    # Vertex coordinates are indexed by array position, so we need to
-    # renormalize the coordinate system.
-    vertices = (vertices / voxel_size) * (max_value - min_value) + min_value
-    textures = (vertices - vertices.min()) / (vertices.max() - vertices.min())
-    textures = pytorch3d.renderer.TexturesVertex(vertices.unsqueeze(0))
-
-    mesh = pytorch3d.structures.Meshes([vertices], [faces], textures=textures).to(
-        device
-    )
+    mesh = pytorch3d.structures.Meshes(vertices, faces, textures=textures)
+    mesh = mesh.to(device)
   
     lights = pytorch3d.renderer.PointLights(location=[[0, 0.5, -4.0]], device=device)
     renderer = get_mesh_renderer(image_size=image_size, device=device)

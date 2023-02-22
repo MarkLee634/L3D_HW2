@@ -23,8 +23,8 @@ def get_args_parser():
     parser = argparse.ArgumentParser('Singleto3D', add_help=False)
     parser.add_argument('--arch', default='resnet18', type=str)
     parser.add_argument('--max_iter', default=10000, type=str)
-    parser.add_argument('--vis_freq', default=1000, type=str)
-    parser.add_argument('--batch_size', default=1, type=str)
+    parser.add_argument('--vis_freq', default=1, type=str)
+    parser.add_argument('--batch_size', default=1, type=int)
     parser.add_argument('--num_workers', default=0, type=str)
     parser.add_argument('--type', default='vox', choices=['vox', 'point', 'mesh'], type=str)
     parser.add_argument('--n_points', default=5000, type=int)
@@ -124,17 +124,6 @@ def evaluate_model(args):
         pin_memory=True,
         drop_last=True)
 
-    if args.unit_test:
-        small_set = torch.utils.data.Subset(r2n2_dataset, range(1))
-
-        loader = torch.utils.data.DataLoader(
-            small_set,
-            batch_size=args.batch_size,
-            num_workers=args.num_workers,
-            collate_fn=collate_batched_R2N2,
-            pin_memory=True,
-            drop_last=True)
-
     eval_loader = iter(loader)
 
     model =  SingleViewto3D(args)
@@ -152,12 +141,15 @@ def evaluate_model(args):
     avg_r_score = []
 
     if args.load_checkpoint:
-        checkpoint = torch.load(f'checkpoint_{args.type}.pth')
+        checkpoint = torch.load(f'checkpoint_{args.type}2.pth')
         model.load_state_dict(checkpoint['model_state_dict'])
         print(f"Succesfully loaded iter {start_iter}")
     
+   
     print("Starting evaluating !")
     max_iter = len(eval_loader)
+
+    print(f" start iter and max iter : {start_iter} {max_iter}")
     for step in range(start_iter, max_iter):
         iter_start_time = time.time()
         read_start_time = time.time()
@@ -193,7 +185,7 @@ def evaluate_model(args):
 
             vertices = vertices.unsqueeze(0)  # (N_v, 3) -> (1, N_v, 3)
             faces = faces.unsqueeze(0)  # (N_f, 3) -> (1, N_f, 3)
-            color=[0.7, 0.7, 1]
+            color=[0.5, 0.5, 0.5]
 
 
             textures = torch.ones_like(vertices)  # (1, N_v, 3)
@@ -209,35 +201,20 @@ def evaluate_model(args):
             rendered_gt = utils_vox.render_mesh(mesh_gt, args.device)
             #================================================================================================
 
-            print(f" predictions {predictions.shape}")
             #convert tensor to voxel
             predictions = predictions.squeeze(0)
-            print(f" predictions {predictions.shape}")
             predictions = predictions.squeeze(0)
-            print(f" predictions {predictions.shape}")
+            # print(f" predictions {predictions.shape}")
             # print(f" predictions {predictions}")
-
-            
-
-            # min_value = -1.1
-            # max_value = 1.1
-            # voxel_size = 32
-            # X, Y, Z = torch.meshgrid([torch.linspace(min_value, max_value, voxel_size)] * 3)
-            # voxels = X ** 2 + Y ** 2 + Z ** 2 - 1
-            # # print(f" voxels {voxels}")
-            # print(f" voxels shape {voxels.shape}")
-
-            # sys.exit()
-
 
             #render from voxel
             predictions = predictions.detach().cpu()
-            print(f" predictions{predictions}")
+            # print(f" predictions{predictions}")
             rendered_pred = utils_vox.render_mesh_from_voxels(predictions, args.device)
 
 
             # plt.imsave(f'vis/{step}_{args.type}.png', rend)
-            plt.figure()
+            # plt.figure()
             #subplot(r,c) provide the no. of rows and columns
             f, axarr = plt.subplots(1,3)
 
@@ -246,8 +223,11 @@ def evaluate_model(args):
 
             images_gt_ = images_gt_.squeeze(0)
             axarr[0].imshow(images_gt_)
+            axarr[0].set_title('Input Image')
             axarr[1].imshow(rendered_pred)
+            axarr[1].set_title('Pred')
             axarr[2].imshow(rendered_gt)
+            axarr[2].set_title('GT ')
             plt.show()
 
       
