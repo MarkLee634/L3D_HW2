@@ -15,6 +15,10 @@ python train_model.py --type 'vox' --batch_size 1 --unit_test True --max_iter 10
 
 python train_model.py --type 'vox' --batch_size 16  --max_iter 10000
 
+python train_model.py --type 'point' --batch_size 16  --max_iter 50000
+
+python train_model.py --type 'mesh' --batch_size 1  --max_iter 10000
+
 
 '''
 
@@ -126,6 +130,10 @@ def train_model(args):
         prediction_3d = model(images_gt, args)
 
         loss = calculate_loss(prediction_3d, ground_truth_3d, args)
+        loss = loss.mean()  
+            
+        # print(f"prediction_3d shape {prediction_3d.shape}, ground_truth_3d shape {ground_truth_3d.shape}")
+        # print(f"loss {loss}, loss shape {loss.shape}")
 
         optimizer.zero_grad()
         loss.backward()
@@ -148,7 +156,7 @@ def train_model(args):
 
         if (step % args.log_freq) == 0:
             print("[%4d/%4d]; ttime: %.0f (%.2f, %.2f); loss: %.3f" % (step, args.max_iter, total_time, read_time, iter_time, loss_vis))
-            wandb.log({"step": step, "loss": loss_vis})
+            # wandb.log({"step": step, "loss": loss_vis})
 
 
     print('Done!')
@@ -159,7 +167,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     print(f" ------------ starting scrip ------------ ")
-    wandb.init(project="L3D-HW2")
+    # wandb.init(project="L3D-HW2")
 
 
     train_model(args)

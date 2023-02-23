@@ -37,12 +37,107 @@ def get_device():
         device = torch.device("cpu")
     return device
 
+def render_from_pointcloud(predictions, device):
+    """
+    input: tensor of points [batch_size, n_points, 3]
+    output: image
+    """
+    image_size=256
+    background_color=(1, 1, 1)
+    color=[0.7, 0.7, 1]
+
+
+    if device is None:
+        device = get_device()
+    renderer = get_points_renderer(image_size=image_size, background_color=background_color)
+
+    predictions = predictions.to(device)
+    rgb = torch.ones_like(predictions) * torch.tensor(color).to(device)  # (1, N_v, 3)
+
+    point_cloud1 = pytorch3d.structures.Pointclouds(points=predictions, features=rgb)
+
+    R, T = pytorch3d.renderer.look_at_view_transform(4, 10, 0)
+    cameras = pytorch3d.renderer.FoVPerspectiveCameras(R=R, T=T, device=device)
+    rend = renderer(point_cloud1, cameras=cameras)
+    rend = rend.detach().cpu().numpy()[0, ..., :3]  # (B, H, W, 4) -> (H, W, 3)
+
+    print(f"shape of pcloud {point_cloud1.points_packed().shape}, rgb {point_cloud1.features_packed().shape}")
+
+    
+
+    return rend
+
+
+def render_from_mesh_by_adding_texture(mesh, device):
+    """
+    input: mesh w/o texture
+    output: image
+    """
+    image_size=256
+
+    mesh = mesh.to(device)
+    vertices = mesh.verts_packed().unsqueeze(0)
+    faces = mesh.faces_packed().unsqueeze(0)
+    texture = torch.ones_like(vertices) * 0.5  # (1, N_v, 3)
+    textures = pytorch3d.renderer.TexturesVertex(texture)
+
+    mesh = pytorch3d.structures.Meshes(vertices, faces, textures=textures)
+    mesh = mesh.to(device)
+  
+    lights = pytorch3d.renderer.PointLights(location=[[0, 0.5, -4.0]], device=device)
+    renderer = get_mesh_renderer(image_size=image_size, device=device)
+
+    R, T = pytorch3d.renderer.look_at_view_transform(dist=3, elev=0, azim=180)
+    cameras = pytorch3d.renderer.FoVPerspectiveCameras(R=R, T=T, device=device)
+    rend = renderer(mesh, cameras=cameras, lights=lights)
+    
+    return rend[0, ..., :3].detach().cpu().numpy().clip(0, 1)
+
+def get_both_renders_pred_gt(mesh_gt, predictions, args):
+
+    # print(f" mesh_gt {mesh_gt}")
+
+    vertices = mesh_gt.verts_list()
+    faces = mesh_gt.faces_list()
+
+    #convert list to tensor
+    vertices = torch.cat(vertices)
+    faces = torch.cat(faces)
+
+    vertices = vertices.unsqueeze(0)  # (N_v, 3) -> (1, N_v, 3)
+    faces = faces.unsqueeze(0)  # (N_f, 3) -> (1, N_f, 3)
+    color=[0.5, 0.5, 0.5]
+
+
+    textures = torch.ones_like(vertices)  # (1, N_v, 3)
+    textures = textures * torch.tensor(color)  # (1, N_v, 3)
+
+    mesh_gt = pytorch3d.structures.Meshes(
+        verts=vertices,
+        faces=faces,
+        textures=pytorch3d.renderer.TexturesVertex(textures),
+    )
+
+    mesh_gt = mesh_gt.to(args.device)
+    rendered_gt = render_mesh(mesh_gt, args.device)
+    #================================================================================================
+
+    #convert tensor to voxel
+    predictions = predictions.squeeze(0)
+    predictions = predictions.squeeze(0)
+    # print(f" predictions {predictions.shape}")
+    # print(f" predictions {predictions}")
+
+    #render from voxel
+    predictions = predictions.detach().cpu()
+    # print(f" predictions{predictions}")
+    rendered_pred = render_mesh_from_voxels(predictions, args.device)
+
+    return rendered_gt, rendered_pred
 
 
 def render_mesh_from_voxels(voxels, device):
-    """
-    Renders a sphere using parametric sampling. Samples num_samples ** 2 points.
-    """
+
     image_size=256
 
     if device is None:

@@ -5,6 +5,8 @@ import torch.nn as nn
 import torch
 from pytorch3d.utils import ico_sphere
 import pytorch3d
+import sys
+
 
 class SingleViewto3D(nn.Module):
     def __init__(self, args):
@@ -68,25 +70,46 @@ class SingleViewto3D(nn.Module):
             torch.nn.Sigmoid()
             )
 
-
-
             pass
             # TODO:
             # self.decoder =             
         elif args.type == "point":
             # Input: b x 512
             # Output: b x args.n_points x 3  
+            
             self.n_point = args.n_points
             # TODO:
-            # self.decoder =             
+
+            self.decoder = torch.nn.Sequential(
+                torch.nn.Linear(512, 1024),
+                torch.nn.ReLU(),
+                torch.nn.Linear(1024, 2048),
+                torch.nn.ReLU(),
+                torch.nn.Linear(2048, args.n_points*3)
+                )
+  
         elif args.type == "mesh":
             # Input: b x 512
             # Output: b x mesh_pred.verts_packed().shape[0] x 3  
             # try different mesh initializations
+
+            #transcov3d layer pytorch3d 
+            # batchnorm 1d for linear layer
+             
+
             mesh_pred = ico_sphere(4, self.device)
             self.mesh_pred = pytorch3d.structures.Meshes(mesh_pred.verts_list()*args.batch_size, mesh_pred.faces_list()*args.batch_size)
             # TODO:
             # self.decoder =             
+
+            self.decoder = torch.nn.Sequential(
+                torch.nn.Linear(512, 1024),
+                torch.nn.ReLU(),
+                torch.nn.Linear(1024, 2048),
+                torch.nn.ReLU(),
+                torch.nn.Linear(2048, mesh_pred.verts_packed().shape[0]*3)
+                )
+  
 
     def forward(self, images, args):
         # print(f" ----------- forward pass -----------")
@@ -128,20 +151,27 @@ class SingleViewto3D(nn.Module):
             voxels_pred = self.layer3(voxels_pred)
             # print(f"after layer3: {voxels_pred.shape}")  
             voxels_pred = self.layer4(voxels_pred)
-            # print(f"after layer4: {voxels_pred.shape}")  
-
-
+            print(f"after layer4: {voxels_pred.shape}")  
 
             return voxels_pred
 
         elif args.type == "point":
             # TODO:
             # pointclouds_pred =             
+            # print(f"shape of encoded_feat: {encoded_feat.shape}") #[bx512] 
+
+            pointclouds_pred = self.decoder(encoded_feat)
+            # print(f"shape of pointclouds_pred: {pointclouds_pred.shape}")
+
+            #reshape into b x num_points x 3
+            pointclouds_pred = pointclouds_pred.view(-1, self.n_point, 3)
+            # print(f"shape of pointclouds_pred: {pointclouds_pred.shape}")
+
             return pointclouds_pred
 
         elif args.type == "mesh":
             # TODO:
-            # deform_vertices_pred =             
+            deform_vertices_pred = self.decoder(encoded_feat)           
             mesh_pred = self.mesh_pred.offset_verts(deform_vertices_pred.reshape([-1,3]))
             return  mesh_pred          
 

@@ -17,6 +17,8 @@ import sys
 
 '''
 python eval_model.py --type 'vox' --load_checkpoint --unit_test True 
+python eval_model.py --type 'point' --load_checkpoint  
+
 '''
 
 def get_args_parser():
@@ -141,7 +143,7 @@ def evaluate_model(args):
     avg_r_score = []
 
     if args.load_checkpoint:
-        checkpoint = torch.load(f'checkpoint_{args.type}2.pth')
+        checkpoint = torch.load(f'checkpoint_{args.type}.pth')
         model.load_state_dict(checkpoint['model_state_dict'])
         print(f"Succesfully loaded iter {start_iter}")
     
@@ -174,43 +176,20 @@ def evaluate_model(args):
             # visualization block
             # render image from mesh
             print(f" ******** plotting  *********")
-            # print(f" mesh_gt {mesh_gt}")
 
-            vertices = mesh_gt.verts_list()
-            faces = mesh_gt.faces_list()
+            if args.type == "vox":
+                rendered_gt, rendered_pred = utils_vox.get_both_renders_pred_gt(mesh_gt, predictions, args)
+            
+            elif args.type == "point":
+                
+                print(f" shape of pred points : {predictions.shape}")
+                rendered_gt = utils_vox.render_from_mesh_by_adding_texture(mesh_gt, args.device)
+                rendered_pred = utils_vox.render_from_pointcloud(predictions, args.device)
 
-            #convert list to tensor
-            vertices = torch.cat(vertices)
-            faces = torch.cat(faces)
-
-            vertices = vertices.unsqueeze(0)  # (N_v, 3) -> (1, N_v, 3)
-            faces = faces.unsqueeze(0)  # (N_f, 3) -> (1, N_f, 3)
-            color=[0.5, 0.5, 0.5]
-
-
-            textures = torch.ones_like(vertices)  # (1, N_v, 3)
-            textures = textures * torch.tensor(color)  # (1, N_v, 3)
-
-            mesh_gt = pytorch3d.structures.Meshes(
-                verts=vertices,
-                faces=faces,
-                textures=pytorch3d.renderer.TexturesVertex(textures),
-            )
-
-            mesh_gt = mesh_gt.to(args.device)
-            rendered_gt = utils_vox.render_mesh(mesh_gt, args.device)
-            #================================================================================================
-
-            #convert tensor to voxel
-            predictions = predictions.squeeze(0)
-            predictions = predictions.squeeze(0)
-            # print(f" predictions {predictions.shape}")
-            # print(f" predictions {predictions}")
-
-            #render from voxel
-            predictions = predictions.detach().cpu()
-            # print(f" predictions{predictions}")
-            rendered_pred = utils_vox.render_mesh_from_voxels(predictions, args.device)
+            elif args.type == "mesh":
+                # print(f" shape of pred points : {predictions.shape}")
+                rendered_gt = utils_vox.render_from_mesh_by_adding_texture(mesh_gt, args.device)
+                rendered_pred = utils_vox.render_from_mesh_by_adding_texture(predictions, args.device)
 
 
             # plt.imsave(f'vis/{step}_{args.type}.png', rend)
